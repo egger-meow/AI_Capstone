@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import gymnasium as gym
+import matplotlib
+matplotlib.use('Agg')  # Set the backend to Agg before importing pyplot
 import matplotlib.pyplot as plt
 from stable_baselines3 import DQN, A2C, PPO
 from stable_baselines3.common.atari_wrappers import AtariWrapper

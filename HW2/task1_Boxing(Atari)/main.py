@@ -231,7 +231,7 @@ def main():
         run_training_mode(working_env_id, args.algo, args.timesteps)
     
     elif args.mode == 'visualize':
-        check_freq = min(args.timesteps // 4, 50000)  # Create at least 4 checkpoints
+        check_freq = min(args.timesteps // 4, 5000)  # Create at least 4 checkpoints
         run_visualization_mode(working_env_id, args.algo, args.timesteps, check_freq)
     
     elif args.mode == 'compare':
