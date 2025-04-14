@@ -8,3 +8,4 @@
 *.csv
 *.npz
 *.mp4
+!algorithm_comparison.mp4
