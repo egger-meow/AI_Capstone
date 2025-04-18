@@ -1,212 +1,109 @@
 import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import pandas as pd
-from enum import Enum
-
-
-class Actions(Enum):
-    HOLD = 0
-    BUY = 1
-    SELL = 2
+from gymnasium import spaces
 
 
 class CryptoTradingEnv(gym.Env):
-    """
-    A simple cryptocurrency trading environment for OpenAI gym
-    """
-    metadata = {'render_modes': ['human']}
-
-    def __init__(self, df, window_size=20, render_mode=None, initial_balance=10000, 
-                 commission=0.001, reward_scaling=1.0):
-        """
-        Args:
-            df (pandas.DataFrame): DataFrame with cryptocurrency price data
-            window_size (int): Number of previous price points to include in state
-            render_mode (str): Mode for rendering the environment
-            initial_balance (float): Initial amount of money for trading
-            commission (float): Trading commission percentage
-            reward_scaling (float): Scaling factor for rewards
-        """
+    def __init__(self, df, initial_balance=10000.0, commission=0.001):
         super(CryptoTradingEnv, self).__init__()
         
         self.df = df
-        self.window_size = window_size
-        self.render_mode = render_mode
         self.initial_balance = initial_balance
         self.commission = commission
-        self.reward_scaling = reward_scaling
         
-        # Action space: [HOLD, BUY, SELL]
-        self.action_space = spaces.Discrete(len(Actions))
-        
-        # Observation space: [prices, technical indicators, balance, holdings]
+        # Define action and observation spaces
+        self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.window_size + 2,), dtype=np.float32
+            low=-np.inf, 
+            high=np.inf, 
+            shape=(len(self.df.columns),),
+            dtype=np.float32
         )
         
-        # Episode variables
-        self.current_step = 0
-        self.balance = initial_balance
-        self.crypto_held = 0
-        self.net_worth = initial_balance
-        self.transaction_history = []
-
-    def _next_observation(self):
-        """
-        Get the next state observation
-        """
-        # Get the window of cryptocurrency prices
-        end = self.current_step + 1
-        start = end - self.window_size
-        
-        # Handle the case for start < 0 (beginning of data)
-        if start < 0:
-            zeros = np.zeros((-start, 1))
-            price_window = np.concatenate((zeros, self.df['Close'].values[0:end, np.newaxis]))
-        else:
-            price_window = self.df['Close'].values[start:end]
-        
-        # Normalize the price data
-        normalized_price = price_window / price_window[-1] - 1
-        
-        # Add balance and holdings to the observation
-        observation = np.append(
-            normalized_price,
-            [
-                self.balance / self.initial_balance - 1, 
-                self.crypto_held * self.df['Close'].values[self.current_step] / self.initial_balance
-            ]
-        )
-        
-        return observation.astype(np.float32)
-
-    def _calculate_reward(self, action):
-        """
-        Calculate the reward for the current step
-        """
-        # Current price
-        current_price = self.df['Close'].values[self.current_step]
-        
-        # Previous net worth
-        prev_net_worth = self.net_worth
-        
-        # Calculate current net worth
-        self.net_worth = self.balance + self.crypto_held * current_price
-        
-        # Calculate profit/loss for this step
-        profit = self.net_worth - prev_net_worth
-        
-        # Reward is profit scaled by reward_scaling
-        reward = profit * self.reward_scaling
-        
-        return reward
+        # Reset environment
+        self.reset()
     
-    def _take_action(self, action):
-        """
-        Execute the action in the environment
-        """
-        # Current price
-        current_price = self.df['Close'].values[self.current_step]
+    def reset(self):
+        self.current_step = 0
+        self.balance = self.initial_balance
+        self.crypto_held = 0.0
+        self.total_profit = 0.0
+        self.trades = []
         
-        # Execute action
-        if action == Actions.BUY.value and self.balance > 0:
-            # Calculate maximum amount of crypto to buy
-            max_crypto_to_buy = self.balance / current_price
+        return self._get_observation()
+    
+    def step(self, action):
+        # Get current price
+        current_price = self.df.iloc[self.current_step]['Close']
+        
+        # Convert action to trading amount (-1 to 1)
+        trade_amount = float(action[0])
+        
+        # Calculate amount to buy/sell
+        if trade_amount > 0:  # Buy
+            amount = trade_amount * self.balance / current_price
+            cost = amount * current_price * (1 + self.commission)
             
-            # Apply commission
-            crypto_bought = max_crypto_to_buy * (1 - self.commission)
+            if cost > self.balance:
+                amount = self.balance / (current_price * (1 + self.commission))
+                cost = self.balance
             
-            # Update balance and holdings
-            self.balance = 0
-            self.crypto_held += crypto_bought
+            self.balance -= cost
+            self.crypto_held += amount
             
-            # Record transaction
-            self.transaction_history.append({
+            self.trades.append({
                 'step': self.current_step,
                 'type': 'buy',
+                'amount': amount,
                 'price': current_price,
-                'amount': crypto_bought,
-                'balance': self.balance,
-                'crypto_held': self.crypto_held
+                'cost': cost
             })
+        
+        elif trade_amount < 0:  # Sell
+            amount = -trade_amount * self.crypto_held
             
-        elif action == Actions.SELL.value and self.crypto_held > 0:
-            # Calculate selling amount
-            crypto_sold = self.crypto_held
+            if amount > self.crypto_held:
+                amount = self.crypto_held
             
-            # Apply commission
-            self.balance += crypto_sold * current_price * (1 - self.commission)
-            self.crypto_held = 0
+            revenue = amount * current_price * (1 - self.commission)
             
-            # Record transaction
-            self.transaction_history.append({
+            self.balance += revenue
+            self.crypto_held -= amount
+            
+            self.trades.append({
                 'step': self.current_step,
                 'type': 'sell',
+                'amount': amount,
                 'price': current_price,
-                'amount': crypto_sold,
-                'balance': self.balance,
-                'crypto_held': self.crypto_held
+                'revenue': revenue
             })
-            
-    def step(self, action):
-        """
-        Take a step in the environment
-        """
-        # Execute action
-        self._take_action(action)
+        
+        # Calculate reward
+        portfolio_value = self.balance + self.crypto_held * current_price
+        reward = portfolio_value - self.initial_balance - self.total_profit
+        self.total_profit += reward
         
         # Move to next step
         self.current_step += 1
-        
-        # Check if done (end of data)
         done = self.current_step >= len(self.df) - 1
         
-        # Calculate reward
-        reward = self._calculate_reward(action)
+        # Get observation
+        obs = self._get_observation()
         
-        # Get next observation
-        obs = self._next_observation()
-        
-        # Info dictionary for metrics
+        # Additional info
         info = {
-            'net_worth': self.net_worth,
             'balance': self.balance,
             'crypto_held': self.crypto_held,
-            'current_price': self.df['Close'].values[self.current_step]
+            'portfolio_value': portfolio_value,
+            'current_price': current_price,
+            'total_profit': self.total_profit
         }
         
-        return obs, reward, done, False, info
-
-    def reset(self, seed=None, options=None):
-        """
-        Reset the environment for a new episode
-        """
-        super().reset(seed=seed)
-        
-        # Reset variables
-        self.balance = self.initial_balance
-        self.crypto_held = 0
-        self.net_worth = self.initial_balance
-        self.current_step = self.window_size
-        self.transaction_history = []
-        
-        return self._next_observation(), {}
-
-    def render(self, mode='human'):
-        """
-        Render the environment
-        """
-        if self.render_mode == 'human':
-            print(f"Step: {self.current_step}")
-            print(f"Price: ${self.df['Close'].values[self.current_step]:.2f}")
-            print(f"Balance: ${self.balance:.2f}")
-            print(f"Crypto Held: {self.crypto_held:.6f}")
-            print(f"Net Worth: ${self.net_worth:.2f}")
-            print("------------------------")
-            
+        return obs, reward, done, info
+    
+    def _get_observation(self):
+        return self.df.iloc[self.current_step].values
+    
     def get_transaction_history(self):
-        """
-        Return the transaction history for analysis
-        """
-        return pd.DataFrame(self.transaction_history) 
+        return pd.DataFrame(self.trades) 
