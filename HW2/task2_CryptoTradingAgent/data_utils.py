@@ -31,6 +31,12 @@ def download_crypto_data(symbol="BTC-USD", start_date=None, end_date=None, inter
     print(f"Downloading {symbol} data from {start_date} to {end_date} with interval {interval}...")
     data = yf.download(symbol, start=start_date, end=end_date, interval=interval)
     
+    # Ensure all required columns are present
+    required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    for col in required_columns:
+        if col not in data.columns:
+            raise ValueError(f"Missing required column: {col}")
+    
     # Clean data
     data = data.dropna()
     
@@ -56,6 +62,13 @@ def add_technical_indicators(df):
     # Copy the dataframe to avoid modifying the original
     df_indicators = df.copy()
     
+    # Validate data types
+    numeric_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    for col in numeric_columns:
+        if col in df_indicators.columns:
+            if not pd.api.types.is_numeric_dtype(df_indicators[col]):
+                raise ValueError(f"Column {col} must be numeric, but got {df_indicators[col].dtype}")
+    
     # 1. Moving Averages
     df_indicators['SMA_7'] = df_indicators['Close'].rolling(window=7).mean()
     df_indicators['SMA_20'] = df_indicators['Close'].rolling(window=20).mean()
@@ -79,8 +92,8 @@ def add_technical_indicators(df):
     # 4. Bollinger Bands
     df_indicators['BB_Middle'] = df_indicators['Close'].rolling(window=20).mean()
     std_dev = df_indicators['Close'].rolling(window=20).std()
-    df_indicators['BB_Upper'] = df_indicators['BB_Middle'] + (std_dev * 2)
-    df_indicators['BB_Lower'] = df_indicators['BB_Middle'] - (std_dev * 2)
+    df_indicators['BB_Upper'] = df_indicators['BB_Middle'] + (std_dev * 2.0)
+    df_indicators['BB_Lower'] = df_indicators['BB_Middle'] - (std_dev * 2.0)
     
     # 5. Volatility
     df_indicators['Volatility'] = df_indicators['Close'].rolling(window=20).std()
@@ -161,6 +174,12 @@ def prepare_data_for_env(data_path=None, symbol="BTC-USD", start_date=None, end_
     if data_path is not None and os.path.exists(data_path):
         print(f"Loading data from {data_path}...")
         df = pd.read_csv(data_path, index_col=0, parse_dates=True)
+        
+        # Convert numeric columns to float
+        numeric_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
     else:
         # Create directory for data if needed
         if data_path is not None:
