@@ -10,7 +10,8 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.her import HERGoalEnvWrapper, HerReplayBuffer
+from stable_baselines3.common.evaluation import evaluate_policy
+from tqdm import tqdm
 
 
 class TradingCallback(BaseCallback):
@@ -42,19 +43,17 @@ class TradingCallback(BaseCallback):
 
 
 class TradingAgent:
-    def __init__(self, env, algorithm="sac", use_her=False, **kwargs):
+    def __init__(self, env, algorithm="sac", **kwargs):
         """
         Initialize the trading agent
         
         Args:
             env: Trading environment
             algorithm: RL algorithm to use ("sac", "td3", or "ddpg")
-            use_her: Whether to use Hindsight Experience Replay
             **kwargs: Additional arguments for the algorithm
         """
         self.env = env
         self.algorithm = algorithm.lower()
-        self.use_her = use_her
         
         # Set up the algorithm
         if self.algorithm == "sac":
@@ -65,17 +64,6 @@ class TradingAgent:
             self.model = DDPG("MlpPolicy", env, verbose=1, **kwargs)
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
-        
-        if use_her:
-            self.model = HERGoalEnvWrapper(self.model)
-            self.model.replay_buffer = HerReplayBuffer(
-                buffer_size=kwargs.get("buffer_size", 1000000),
-                observation_space=env.observation_space,
-                action_space=env.action_space,
-                device=kwargs.get("device", "auto"),
-                n_envs=env.num_envs,
-                optimize_memory_usage=False,
-            )
 
     def train(self, total_timesteps, callback=None):
         """
@@ -85,11 +73,34 @@ class TradingAgent:
             total_timesteps: Number of timesteps to train for
             callback: Callback function for logging and saving
         """
+        # Create progress bar
+        progress_bar = tqdm(total=total_timesteps, desc="Training Progress")
+        
+        # Custom callback to update progress bar
+        class ProgressCallback(BaseCallback):
+            def __init__(self, progress_bar):
+                super(ProgressCallback, self).__init__()
+                self.progress_bar = progress_bar
+                
+            def _on_step(self) -> bool:
+                self.progress_bar.update(1)
+                return True
+        
+        # Combine callbacks
+        if callback is not None:
+            callbacks = [callback, ProgressCallback(progress_bar)]
+        else:
+            callbacks = [ProgressCallback(progress_bar)]
+            
+        # Train the model
         self.model.learn(
             total_timesteps=total_timesteps,
-            callback=callback,
+            callback=callbacks,
             log_interval=10
         )
+        
+        # Close progress bar
+        progress_bar.close()
 
     def save(self, path):
         """
@@ -113,9 +124,6 @@ class TradingAgent:
             self.model = TD3.load(path)
         elif self.algorithm == "ddpg":
             self.model = DDPG.load(path)
-        
-        if self.use_her:
-            self.model = HERGoalEnvWrapper(self.model)
 
     def predict(self, observation, deterministic=True):
         """

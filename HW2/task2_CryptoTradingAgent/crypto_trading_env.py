@@ -24,14 +24,18 @@ class CryptoTradingEnv(gym.Env):
         # Reset environment
         self.reset()
     
-    def reset(self):
+    def reset(self, seed=None, **kwargs):
+        # Set the seed if provided
+        if seed is not None:
+            np.random.seed(seed)
+            
         self.current_step = 0
         self.balance = self.initial_balance
         self.crypto_held = 0.0
         self.total_profit = 0.0
         self.trades = []
         
-        return self._get_observation()
+        return self._get_observation(), {}
     
     def step(self, action):
         # Get current price
@@ -86,7 +90,8 @@ class CryptoTradingEnv(gym.Env):
         
         # Move to next step
         self.current_step += 1
-        done = self.current_step >= len(self.df) - 1
+        terminated = self.current_step >= len(self.df) - 1
+        truncated = False  # We don't have any truncation conditions
         
         # Get observation
         obs = self._get_observation()
@@ -100,7 +105,7 @@ class CryptoTradingEnv(gym.Env):
             'total_profit': self.total_profit
         }
         
-        return obs, reward, done, info
+        return obs, reward, terminated, truncated, info
     
     def _get_observation(self):
         return self.df.iloc[self.current_step].values

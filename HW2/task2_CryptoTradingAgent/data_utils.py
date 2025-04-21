@@ -51,7 +51,7 @@ def download_crypto_data(symbol="BTC-USD", start_date=None, end_date=None, inter
 
 def add_technical_indicators(df):
     """
-    Add technical indicators to the price data
+    Add technical indicators to the dataframe
     
     Args:
         df (pandas.DataFrame): DataFrame with price data
@@ -67,7 +67,10 @@ def add_technical_indicators(df):
     for col in numeric_columns:
         if col in df_indicators.columns:
             if not pd.api.types.is_numeric_dtype(df_indicators[col]):
-                raise ValueError(f"Column {col} must be numeric, but got {df_indicators[col].dtype}")
+                # Try to convert to numeric
+                df_indicators[col] = pd.to_numeric(df_indicators[col], errors='coerce')
+                if not pd.api.types.is_numeric_dtype(df_indicators[col]):
+                    raise ValueError(f"Column {col} must be numeric, but got {df_indicators[col].dtypes}")
     
     # 1. Moving Averages
     df_indicators['SMA_7'] = df_indicators['Close'].rolling(window=7).mean()
