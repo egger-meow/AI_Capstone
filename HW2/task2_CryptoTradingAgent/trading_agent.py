@@ -152,13 +152,14 @@ class TradingAgent:
         """
         episode_rewards = []
         for _ in range(n_episodes):
-            obs = env.reset()
+            obs, _ = env.reset()
             done = False
             episode_reward = 0
-            
+
             while not done:
                 action, _ = self.predict(obs)
-                obs, reward, done, _ = env.step(action)
+                obs, reward, terminated, truncated, _ = env.step(action)
+                done = terminated or truncated
                 episode_reward += reward
             
             episode_rewards.append(episode_reward)
